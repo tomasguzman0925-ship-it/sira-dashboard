@@ -74,6 +74,10 @@ def resumen() -> dict:
     return _resumen(corrida())
 
 
+def resumen_de(c: str) -> dict:
+    return _resumen(c)
+
+
 def hoy() -> dt.date:
     return dt.date.fromisoformat(resumen()["hoy"])
 

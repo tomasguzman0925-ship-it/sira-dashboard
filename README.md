@@ -13,7 +13,7 @@ Cubre 400 ha alrededor del C.I. Nataima (El Espinal, Tolima), se actualiza solo 
 | Plan de riego | Calendario de 14 días por lote, fecha límite de riego, lámina (mm) y volumen (m³) hoy y si se espera 7 días; descarga del plan |
 | Clima | Pronóstico diario de lluvia y evapotranspiración a 28 días con sus escenarios, balance de agua acumulado, resumen semanal y lluvia observada |
 | Cultivo | Etapa y edad de cada lote, vigor frente a la curva normal del arroz, puntos para revisar en campo con enlace al mapa |
-| Datos y modelo | Fecha de cada fuente, confiabilidad del sistema, parámetros del suelo y supuestos de la corrida |
+| Datos y modelo | Cómo llegan los datos (fuentes, ingesta, lakehouse en S3, procesamiento, modelos y tablero), cada proceso con sus herramientas, su cadencia y su último dato, volumen, historial de corridas, confiabilidad del sistema, parámetros del suelo y supuestos de la corrida |
 
 Los lotes son áreas continuas de arroz con la misma fecha de siembra, de 0,5 ha o más, detectadas en los pixeles del semáforo.
 

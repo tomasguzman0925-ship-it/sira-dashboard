@@ -4,8 +4,9 @@ import pandas as pd
 import streamlit as st
 
 from comun import encabezado
-from datos import actualizacion, clima_observado, hoy, pixeles, predio, pronostico, resumen
-from estilo import AGUA, PRIMARIO, ROJO, SOL, SUAVE, fecha_corta, kpi, num, tabla_simple, titulo_panel
+from datos import actualizacion, clima_observado, corrida, corridas, hoy, pixeles, predio, pronostico, resumen, resumen_de
+from estilo import (AGUA, AGUA_CLARO, BORDE, PRIMARIO, PRIMARIO_CLARO, ROJO, SOL, SUAVE, TARJETA, TEXTO, fecha_corta, kpi,
+                    mini, num, tabla_simple, titulo_panel)
 
 encabezado("Datos y modelo")
 RIEGO = {"CD": "Cascada", "MIRI": "MIRI", "AWD+MIRI": "AWD + MIRI"}
@@ -17,23 +18,109 @@ ult = obs.fecha.max().date()
 reciente = obs[obs.fecha >= obs.fecha.max() - pd.Timedelta(days=120)]
 prov = reciente[reciente.fuente_lluvia != "CHIRPS"]
 desde_prov = prov.fecha.min().date() if len(prov) else None
+rev = actualizacion()
+revisado = dt.datetime.fromisoformat(rev["revisado"]) if rev else None
+
+
+def fecha_txt(d: dt.date) -> str:
+    return f"{fecha_corta(d)} {d.year}"
+
+
+ETAPAS = [
+    ("Fuentes abiertas", AGUA, ["Sentinel-2 y Landsat (Planetary Computer)", "CHIRPS, NASA POWER y Open-Meteo",
+                                "Pronóstico NASA GEOS-S2S", "198 mediciones TDR de Nataima"]),
+    ("Ingesta", AGUA, ["AWS Lambda + EventBridge: clima cada día", "Python: imágenes y GEOS-S2S"]),
+    ("Lakehouse en S3", SOL, ["Bronce: tal como llega", "Plata: limpio, por pixel y día", "Oro: listo para decidir",
+                              "Parquet e Iceberg"]),
+    ("Procesamiento", SOL, ["AWS Glue con PySpark", "Step Functions", "Athena: SQL sobre S3"]),
+    ("Modelos", PRIMARIO, ["A · Random Forest: NDVI y NDMI a 30 días", "B · ARIMAX: humedad de hoy", "FAO-56: de hoy a 30 días",
+                           "Prithvi-EO-2.0: rellena nubes"]),
+    ("Tablero", PRIMARIO, ["GitHub Actions, 5:30 a. m.", "Historial de corridas", "Streamlit"]),
+]
+
+
+def diagrama() -> str:
+    tarjetas = []
+    for n, (titulo, color, items) in enumerate(ETAPAS, 1):
+        lineas = "".join(f"<div style='margin-top:0.25rem'>{t}</div>" for t in items)
+        tarjetas.append(
+            f"<div style='flex:1 1 150px;min-width:150px;background:{TARJETA};border:1px solid {BORDE};border-top:4px solid {color};"
+            f"border-radius:10px;padding:0.6rem 0.75rem'><div style='font-size:0.75rem;font-weight:600;color:{color}'>{n}</div>"
+            f"<div style='font-weight:600;color:{TEXTO}'>{titulo}</div>"
+            f"<div style='font-size:0.82rem;color:{SUAVE};line-height:1.3'>{lineas}</div></div>")
+    flecha = f"<div style='align-self:center;color:{SUAVE};font-size:1.3rem;flex:none'>›</div>"
+    return f"<div style='display:flex;flex-wrap:wrap;gap:0.45rem;align-items:stretch'>{flecha.join(tarjetas)}</div>"
+
+
+def modo(texto: str, fondo: str, color: str) -> str:
+    return (f"<span style='background:{fondo};color:{color};border-radius:999px;padding:0.1rem 0.55rem;font-size:0.8rem;"
+            f"font-weight:600;white-space:nowrap'>{texto}</span>")
+
+
+AUTO = modo("Automático", PRIMARIO_CLARO, PRIMARIO)
+EQUIPO = modo("Lo corre el equipo", "#FBEBD8", SOL)
+PROGRAMADO = modo("Programado", AGUA_CLARO, AGUA)
+
+PROCESOS = [
+    ("Clima observado", "AWS Lambda y EventBridge → S3 → AWS Glue (Spark) → tabla Iceberg <i>clima_dia</i> en Athena",
+     "Cada día, 5:00 a. m.", fecha_txt(ult), AUTO),
+    ("Lakehouse por capas", "S3 (bronce, plata y oro), 4 jobs de AWS Glue, Step Functions y 13 tablas en Athena",
+     "Diario, cada 5 días y mensual", "En AWS", PROGRAMADO),
+    ("Semáforo por pixel", "Imágenes Sentinel-2 y Landsat, modelos A y B y balance FAO-56 en Python; se publica en S3 y GitHub",
+     "Con cada corrida", f"Corrida del {fecha_txt(H)}", EQUIPO),
+    ("Pronóstico del clima", f"NASA GEOS-S2S, {R['miembros_geos']} escenarios corregidos por mes y plazo",
+     "Cada 5 días", f"Emisión del {fecha_txt(emision)}", EQUIPO),
+    ("Este tablero", "GitHub Actions trae la última corrida y el clima del día → Streamlit Community Cloud",
+     "Cada día, 5:30 a. m.", f"{fecha_txt(revisado.date())}, {revisado:%H:%M}" if revisado else "—", AUTO),
+]
+
+
+def tabla_procesos() -> str:
+    cab = "".join(f"<th style='text-align:left;padding:0.45rem 0.6rem;color:{SUAVE};font-weight:600;font-size:0.8rem;"
+                  f"border-bottom:1px solid {BORDE}'>{t}</th>" for t in ("Proceso", "Herramientas", "Cada cuánto", "Último dato", ""))
+    filas = "".join(
+        "<tr>" + "".join(f"<td style='padding:0.5rem 0.6rem;border-bottom:1px solid {BORDE};vertical-align:top;"
+                         f"{'font-weight:600;' if i == 0 else ''}{'color:' + SUAVE + ';' if i == 1 else ''}'>{v}</td>"
+                         for i, v in enumerate(fila)) + "</tr>" for fila in PROCESOS)
+    return (f"<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse;font-size:0.88rem'>"
+            f"<tr>{cab}</tr>{filas}</table></div>")
+
 
 with st.container(border=True):
-    titulo_panel("Estado de los datos")
-    st.dataframe(pd.DataFrame([
-        ("Semáforo por pixel", f"Corrida del {fecha_corta(H)} {H.year}", "Cada corrida nueva del modelo",
-         f"{num(len(pixeles()))} pixeles de 10 m"),
-        ("Pronóstico del clima (NASA GEOS-S2S)", f"Emisión del {fecha_corta(emision)} {emision.year}", "Con cada corrida",
-         f"{R['miembros_geos']} escenarios, 30 días, corregido para el sitio"),
-        ("Lluvia y ETo observadas (CHIRPS, NASA POWER)", f"{fecha_corta(ult)} {ult.year}", "Cada día",
-         f"Lluvia provisional (Open-Meteo) desde el {fecha_corta(desde_prov)}" if desde_prov else "Definitiva"),
-        ("Imágenes Sentinel-2 y Landsat", "Hasta la última corrida", "Cada 2–5 días según nubes", "Huecos por nubes rellenados con Prithvi-EO-2.0"),
-    ], columns=["Fuente", "Último dato", "Actualización", "Nota"]), hide_index=True, width="stretch")
-    rev = actualizacion()
-    if rev:
-        r = dt.datetime.fromisoformat(rev["revisado"])
-        st.markdown(f"<div class='nota'>El tablero busca datos nuevos cada día a las 5:30 a. m. Los últimos llegaron el "
-                    f"{fecha_corta(r.date())} {r.year} a las {r:%H:%M}.</div>", unsafe_allow_html=True)
+    titulo_panel("Cómo llegan los datos")
+    st.markdown(diagrama(), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(tabla_procesos(), unsafe_allow_html=True)
+    if desde_prov:
+        st.markdown(f"<div class='nota'>La lluvia desde el {fecha_corta(desde_prov)} es provisional (Open-Meteo): CHIRPS "
+                    f"publica con unas 7 semanas de atraso y la reemplaza cuando sale.</div>", unsafe_allow_html=True)
+
+st.write("")
+a, b = st.columns([1, 2], gap="medium")
+with a:
+    with st.container(border=True):
+        titulo_panel("Volumen")
+        mini([
+            ("Pixeles de 10 m por corrida", num(len(pixeles()))), ("Días de clima desde 1981", num(len(obs))),
+            ("Pronóstico por corrida", f"{R['miembros_geos']} × 30 días"), ("Corridas guardadas", num(len(corridas()))),
+        ])
+with b:
+    with st.container(border=True):
+        titulo_panel("Historial de corridas")
+        filas = []
+        for c in reversed(corridas()):
+            r0 = resumen_de(c)["horizontes"][0]
+            hueco = resumen_de(c).get("lluvia_hueco") or {}
+            filas.append({
+                "Corrida": fecha_txt(dt.date.fromisoformat(c)), "": "● en pantalla" if c == corrida() else "",
+                "Arroz": f"{num(r0['ha_en_cultivo'], 1)} ha", "Suficiente": f"{num(r0['suficiente']['pct'], 1)} %",
+                "Regar pronto": f"{num(r0['media']['pct'], 1)} %", "Regar ya": f"{num(r0['baja']['pct'], 1)} %",
+                "Agua que falta": f"{num(r0['media']['agua_m3_zona'] + r0['baja']['agua_m3_zona'])} m³",
+                "Lluvia sin CHIRPS": f"NASA POWER, {hueco['dias_sin_chirps']} días" if hueco.get("relleno") == "power" else "0 mm",
+            })
+        st.dataframe(pd.DataFrame(filas), hide_index=True, width="stretch")
+        st.markdown("<div class='nota'>Para ver otra corrida, cambia la fecha del semáforo en la barra lateral.</div>",
+                    unsafe_allow_html=True)
 
 st.write("")
 titulo_panel("Qué tan confiable es")

@@ -37,7 +37,7 @@ Cada día a las 5:30 a. m. (hora de Colombia), GitHub Actions corre `actualizar.
 
 | Dato | De dónde sale | Cuándo cambia |
 |---|---|---|
-| Semáforo por pixel | La última corrida publicada en [GomSal/SIRA](https://github.com/GomSal/SIRA/tree/modelo-humedad/reports/semaforo_c), rama `modelo-humedad`, carpeta `reports/semaforo_c` | Cuando el equipo publica una corrida nueva |
+| Semáforo por pixel | La última emisión del job de Glue `sira-b-05` en AWS, que indica la API de la app. Los pixeles salen de la API si los entrega o, si no, de la corrida publicada en [GomSal/SIRA](https://github.com/GomSal/SIRA/tree/modelo-humedad/reports/semaforo_c) (rama `modelo-humedad`, carpeta `reports/semaforo_c`), que debe coincidir con la de AWS | Con cada emisión nueva |
 | Pronóstico GEOS-S2S | El inicio que usó esa corrida, corregido como en `semaforo_c.py`; el promedio de los escenarios debe dar la lluvia y la ETo acumuladas que guardó la corrida | Con cada corrida |
 | Lluvia y ETo observadas | NASA POWER, CHIRPS y Open-Meteo, con las reglas de la tabla `clima_dia` del pipeline de clima | Cada día |
 
@@ -45,7 +45,7 @@ Cada corrida nueva se guarda en `data/corridas/<fecha>/` (`resumen.json`, `pixel
 
 Si algo cambió, el workflow hace commit de `data/` y Streamlit Community Cloud vuelve a publicar la app en un par de minutos. Si una fuente falla, sus archivos quedan como estaban y el workflow termina en rojo; GitHub avisa por correo.
 
-El semáforo no se recalcula aquí: necesita el cubo de imágenes y los modelos del equipo, que no están en GitHub. Para que el tablero muestre una corrida nueva, basta con publicarla en `reports/semaforo_c` de la rama `modelo-humedad`.
+El semáforo no se recalcula aquí: lo calcula `sira-b-05` en AWS cada día a las 5:00 a. m. con los datos que sube el equipo. Hoy la API de la app no entrega `pixeles.csv.gz`, así que para que el tablero muestre una emisión nueva su corrida debe estar también en `reports/semaforo_c`; si no está, el workflow termina en rojo y lo avisa. Si a la API se le agrega `GET /pixeles?emision=<fecha>`, el tablero la usa sin más cambios.
 
 Para correrlo a mano: en GitHub, **Actions** → **Actualizar datos** → **Run workflow**. En el computador:
 

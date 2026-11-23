@@ -19,9 +19,9 @@ alerta_ha = cult.marca_h0.sum() / 100
 c = st.columns(4)
 kpi(c[0], "Regar hoy", f"{num(h0['baja']['ha'], 1)} ha", f"{num(h0['baja']['agua_m3_zona'])} m³ para volver a capacidad de campo", ROJO, ROJO)
 kpi(c[1], f"Regar antes del {fecha_corta(limite)}", f"{num(h0['media']['ha'], 1)} ha",
-    f"pasan a «regar ya» en {h0['media']['dias_hasta_baja_mediana']} días sin lluvia ni riego", "#A86A00", AMBAR)
+    f"pasan a «regar ya» en {h0['media']['dias_hasta_baja_mediana']} días si no se riega", "#A86A00", AMBAR)
 kpi(c[2], "Con agua suficiente", f"{num(h0['suficiente']['ha'], 1)} ha", f"{num(h0['suficiente']['pct'], 0)} % del arroz", VERDE, VERDE)
-kpi(c[3], "Revisar en campo", f"{num(alerta_ha, 1)} ha", "NDMI anómalo: posible plaga, enfermedad o deficiencia", MORADO, MORADO)
+kpi(c[3], "Revisar en campo", f"{num(alerta_ha, 1)} ha", "NDMI fuera de lo normal: posible enfermedad o deficiencia nutricional", MORADO, MORADO)
 
 st.write("")
 izq, der = st.columns([1.75, 1], gap="medium")

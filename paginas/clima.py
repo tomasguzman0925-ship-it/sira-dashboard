@@ -14,9 +14,9 @@ encabezado("Clima y balance de agua")
 f, m, obs = pronostico(), pronostico_miembros(), clima_observado()
 H = hoy()
 s7, s30 = f.head(7), f
-miembros7 = m[m.fecha < H + dt.timedelta(days=7)].groupby("miembro").lluvia_corr_mm.sum()
+miembros7 = m[m.fecha <= H + dt.timedelta(days=7)].groupby("miembro").lluvia_corr_mm.sum()
 base = obs[(obs.fecha.dt.year >= 1991) & (obs.fecha.dt.year <= 2020)]
-dias_rango = pd.date_range(H, periods=len(s30)).strftime("%m-%d")
+dias_rango = pd.date_range(H + dt.timedelta(days=1), periods=len(s30)).strftime("%m-%d")
 normal = base[base.fecha.dt.strftime("%m-%d").isin(dias_rango)].groupby(base.fecha.dt.year).lluvia_mm.sum().mean()
 
 c = st.columns(4)
@@ -61,7 +61,7 @@ with b:
     with st.container(border=True):
         titulo_panel("Resumen semanal")
         f2 = f.copy()
-        f2["semana"] = (pd.to_datetime(f2.fecha) - pd.Timestamp(H)).dt.days // 7 + 1
+        f2["semana"] = ((pd.to_datetime(f2.fecha) - pd.Timestamp(H)).dt.days - 1) // 7 + 1
         sem = f2[f2.semana <= 4].groupby("semana").agg(desde=("fecha", "min"), hasta=("fecha", "max"), lluvia=("lluvia", "sum"),
                                                        eto=("eto", "sum")).reset_index()
         sem["balance"] = sem.lluvia - sem.eto

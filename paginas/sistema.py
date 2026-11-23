@@ -5,7 +5,7 @@ import streamlit as st
 
 from comun import encabezado
 from datos import actualizacion, clima_observado, corrida, corridas, hoy, pixeles, predio, pronostico, resumen, resumen_de
-from estilo import (AGUA, AGUA_CLARO, BORDE, PRIMARIO, PRIMARIO_CLARO, ROJO, SOL, SUAVE, TARJETA, TEXTO, fecha_corta, kpi,
+from estilo import (AGUA, BORDE, PRIMARIO, PRIMARIO_CLARO, ROJO, SOL, SUAVE, TARJETA, TEXTO, fecha_corta, kpi,
                     mini, num, tabla_simple, titulo_panel)
 
 encabezado("Datos y modelo")
@@ -27,15 +27,17 @@ def fecha_txt(d: dt.date) -> str:
 
 
 ETAPAS = [
-    ("Fuentes abiertas", AGUA, ["Sentinel-2 y Landsat (Planetary Computer)", "CHIRPS, NASA POWER y Open-Meteo",
+    ("Fuentes abiertas", AGUA, ["Sentinel-2 y Landsat (Planetary Computer)", "Lluvia CHIRPS y NASA POWER",
                                 "Pronóstico NASA GEOS-S2S", "198 mediciones TDR de Nataima"]),
-    ("Ingesta", AGUA, ["AWS Lambda + EventBridge: clima cada día", "Python: imágenes y GEOS-S2S"]),
+    ("Ingesta", AGUA, ["Python en el equipo: imágenes, clima y GEOS-S2S", "subir_aws.py → S3",
+                       "AWS Lambda: clima diario en la tabla Iceberg clima_dia"]),
     ("Lakehouse en S3", SOL, ["Bronce: tal como llega", "Plata: limpio, por pixel y día", "Oro: listo para decidir",
-                              "Parquet e Iceberg"]),
-    ("Procesamiento", SOL, ["AWS Glue con PySpark", "Step Functions", "Athena: SQL sobre S3"]),
-    ("Modelos", PRIMARIO, ["A · Random Forest: NDVI y NDMI a 30 días", "B · ARIMAX: humedad de hoy", "FAO-56: de hoy a 30 días",
-                           "Prithvi-EO-2.0: rellena nubes"]),
-    ("Tablero", PRIMARIO, ["GitHub Actions, 5:30 a. m.", "Historial de corridas", "Streamlit"]),
+                              "Parquet (Snappy) y JSON"]),
+    ("Procesamiento", SOL, ["EventBridge, 5:00 a. m. → Step Functions", "Glue sira-b-02 (PySpark): clima y GEOS-S2S",
+                            "Glue sira-b-05: modelos y semáforo"]),
+    ("Modelos", PRIMARIO, ["A · Random Forest: NDVI y NDMI a 30 días", "B · ARIMAX(1): humedad de hoy",
+                           "FAO-56 con 5 escenarios: de hoy a 30 días", "Alarma del NDMI"]),
+    ("Consumo", PRIMARIO, ["Athena: 13 tablas", "API en AWS Lambda → app Lovable", "Este tablero"]),
 ]
 
 
@@ -58,19 +60,18 @@ def modo(texto: str, fondo: str, color: str) -> str:
 
 
 AUTO = modo("Automático", PRIMARIO_CLARO, PRIMARIO)
-EQUIPO = modo("Lo corre el equipo", "#FBEBD8", SOL)
-PROGRAMADO = modo("Programado", AGUA_CLARO, AGUA)
+EQUIPO = modo("Lo sube el equipo", "#FBEBD8", SOL)
 
 PROCESOS = [
-    ("Clima observado", "AWS Lambda y EventBridge → S3 → AWS Glue (Spark) → tabla Iceberg <i>clima_dia</i> en Athena",
-     "Cada día, 5:00 a. m.", fecha_txt(ult), AUTO),
-    ("Lakehouse por capas", "S3 (bronce, plata y oro), 4 jobs de AWS Glue, Step Functions y 13 tablas en Athena",
-     "Diario, cada 5 días y mensual", "En AWS", PROGRAMADO),
-    ("Semáforo por pixel", "Imágenes Sentinel-2 y Landsat, modelos A y B y balance FAO-56 en Python; se publica en S3 y GitHub",
-     "Con cada corrida", f"Corrida del {fecha_txt(H)}", EQUIPO),
-    ("Pronóstico del clima", f"NASA GEOS-S2S, {R['miembros_geos']} escenarios corregidos por mes y plazo",
-     "Cada 5 días", f"Emisión del {fecha_txt(emision)}", EQUIPO),
-    ("Este tablero", "GitHub Actions trae la última corrida y el clima del día → Streamlit Community Cloud",
+    ("Datos nuevos", "actualizar_datos.py y bajar_geos.py traen imágenes, lluvia y GEOS-S2S; subir_aws.py los sube a S3",
+     "Cuando el equipo los sube", f"Lluvia hasta el {fecha_txt(H)}", EQUIPO),
+    ("Clima y pronóstico corregido", "Glue sira-b-02 (PySpark): clima desde 2001 y corrección del sesgo de GEOS-S2S",
+     "Cada 5 días y cada mes", f"Emisión del {fecha_txt(emision)}", AUTO),
+    ("Semáforo por pixel", f"Glue sira-b-05: modelos A y B y FAO-56 sobre {num(len(pixeles()))} pixeles → S3 (oro) y Athena",
+     "Cada día, 5:00 a. m.", f"Emisión del {fecha_txt(H)}", AUTO),
+    ("Consulta y app", "Athena (13 tablas) y API en AWS Lambda (sira-b-api-serving) → app Lovable", "Al consultar",
+     f"Emisión del {fecha_txt(H)}", AUTO),
+    ("Este tablero", "GitHub Actions trae la última emisión y el clima del día (reglas de clima_dia) → Streamlit",
      "Cada día, 5:30 a. m.", f"{fecha_txt(revisado.date())}, {revisado:%H:%M}" if revisado else "—", AUTO),
 ]
 
@@ -125,7 +126,7 @@ with b:
 st.write("")
 titulo_panel("Qué tan confiable es")
 c = st.columns(4)
-kpi(c[0], "Suelos secos detectados", "12 de 17", "en la prueba con mediciones reales (TDR)", PRIMARIO, PRIMARIO)
+kpi(c[0], "Rojos detectados", "9 de 17", "en la prueba con mediciones reales (TDR), con el margen de hoy", PRIMARIO, PRIMARIO)
 kpi(c[1], "Error típico de humedad", f"± {num(R['modelo_b']['sigma_pct'], 1)} %", "≈ 4,7 L/m² por pixel, hoy", SOL, SOL)
 kpi(c[2], "Pronóstico del vigor (NDVI)", "28 % mejor", "que repetir la última imagen; 32 % a 30 días", AGUA, AGUA)
 kpi(c[3], "Precisión del rojo hoy", "1 de 5", "rojos del día 0 confirmados: verificar antes de regar", ROJO, ROJO)
@@ -149,7 +150,8 @@ with b:
         tabla_simple([
             ("Riego hasta hoy", f"{RIEGO.get(R['modelo_b']['riego_supuesto'].split()[0], 'Cascada')}, promedio de 3 temporadas medidas"),
             ("Riego desde hoy", "Ninguno: el mapa muestra cuándo hace falta"),
-            ("Margen de seguridad hoy", f"{num(R['modelo_b']['margen_mm'], 2)} mm (1,5 veces el error típico)"),
+            ("Margen de seguridad hoy", f"{num(R['modelo_b']['margen_mm'], 2)} mm: el error típico de B "
+                                        f"({num(R['modelo_b']['sigma_pct'], 2)} %) en lámina; solo hoy"),
             ("Lluvia y ETo futuras", f"Promedio de {R['miembros_geos']} escenarios de GEOS-S2S"),
             *([("Lluvia sin CHIRPS", f"NASA POWER en los últimos {hueco['dias_sin_chirps']} días")]
               if (hueco := R.get("lluvia_hueco")) and hueco.get("relleno") == "power" else []),

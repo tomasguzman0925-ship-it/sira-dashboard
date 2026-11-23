@@ -2,10 +2,13 @@
 
 1. Clima observado: NASA POWER, CHIRPS y Open-Meteo con las reglas de la tabla clima_dia del pipeline de clima.
    Control: las columnas calculadas de los días que no cambian quedan idénticas.
-2. Semáforo: si GomSal/SIRA (rama modelo-humedad, reports/semaforo_c) tiene una corrida más reciente que la última
-   del tablero, o la misma corrida revisada, la guarda en data/corridas/<fecha>/ junto con su pronóstico GEOS-S2S,
-   corregido igual que en scripts/operacion/semaforo_c.py. Control: el promedio de los escenarios da la lluvia y la
-   ETo acumuladas que guardó la corrida. Las corridas anteriores no se tocan: son el historial del tablero.
+2. Semáforo: el job de Glue sira-b-05 publica cada emisión en AWS y la API de la app (Lambda sira-b-api-serving) dice
+   cuál es la última. Si la API entrega sus pixeles, se toman de ahí; si no, de la corrida publicada en GomSal/SIRA
+   (rama modelo-humedad, reports/semaforo_c), que debe coincidir con la emisión de AWS del mismo día. Si es más
+   reciente que la última del tablero, o la misma revisada, se guarda en data/corridas/<fecha>/ junto con su
+   pronóstico GEOS-S2S, corregido igual que en scripts/operacion/semaforo_c.py. Control: el promedio de los escenarios
+   da la lluvia y la ETo acumuladas que guardó la corrida. Las corridas anteriores no se tocan: son el historial.
+   Si AWS tiene una emisión que el tablero no puede traer, el script termina con error para avisar.
 
 Cada paso que falla deja sus archivos como estaban y el script termina con error. Solo escribe lo que cambió.
 
@@ -28,6 +31,7 @@ import pandas as pd
 
 DATA = Path(__file__).parent / "data"
 SIRA = "https://raw.githubusercontent.com/GomSal/SIRA/modelo-humedad"
+API = "https://s435rizz22wj6qd3mv37doq76m0widfd.lambda-url.us-east-2.on.aws"
 COLOMBIA = dt.timezone(dt.timedelta(hours=-5))
 REJILLA_N, FILA0, COL0, LADO = 500, 150, 149, 200
 HORIZONTES = [0, 7, 15, 30]
@@ -73,18 +77,60 @@ def bajar_json(url: str, params: dict | None = None, **kw) -> dict | list:
 # ----------------------------------------------------------------------------- 1. semáforo
 
 
-def semaforo(actual: dict) -> tuple[dict, dict[str, bytes]]:
-    """La corrida publicada, si es más reciente que la última del tablero o la misma revisada; si no, nada."""
-    crudo = bajar(f"{SIRA}/reports/semaforo_c/resumen.json")
+def emision_aws() -> tuple[str | None, dict | None]:
+    """La emisión que publicó el job de Glue sira-b-05 en AWS y su resumen, según la API de la app."""
+    try:
+        emision = bajar_json(f"{API}/latest", intentos=2)["emision"]
+        return emision, bajar_json(f"{API}/resumen", {"emision": emision}, intentos=2)
+    except Exception as error:  # noqa: BLE001
+        log(f"semáforo: la API de AWS no respondió ({error})")
+        return None, None
+
+
+def pixeles_aws(emision: str) -> bytes | None:
+    """pixeles.csv.gz de la emisión de AWS, si la API lo entrega; hoy la API no tiene esa ruta."""
+    try:
+        gz = bajar(f"{API}/pixeles", {"emision": emision}, intentos=1)
+        pd.read_csv(io.BytesIO(gz), compression="gzip", nrows=1)
+        return gz
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def mismos_porcentajes(a: dict, b: dict) -> bool:
+    return all(abs(x[k]["pct"] - y[k]["pct"]) <= 0.2 for x, y in zip(a["horizontes"], b["horizontes"])
+               for k in ("suficiente", "media", "baja"))
+
+
+def semaforo(actual: dict) -> tuple[dict, dict[str, bytes], str | None]:
+    """La corrida publicada, si es más reciente que la última del tablero o la misma revisada; si no, nada.
+
+    Prefiere la emisión de AWS cuando su API entrega los pixeles; si no, la corrida publicada en GitHub, que se compara
+    con la de AWS. Devuelve también un aviso cuando AWS tiene una emisión que el tablero no puede traer."""
+    em_aws, res_aws = emision_aws()
+    gz = pixeles_aws(em_aws) if em_aws else None
+    if gz is not None:
+        origen, crudo = "AWS", json.dumps(res_aws, ensure_ascii=False, indent=1).encode("utf-8")
+    else:
+        origen, crudo = "GitHub", bajar(f"{SIRA}/reports/semaforo_c/resumen.json")
     nuevo = json.loads(crudo)
+    aviso = None
+    if origen == "GitHub" and em_aws:
+        if em_aws > nuevo["hoy"]:
+            aviso = (f"AWS publicó la emisión {em_aws}, pero sus pixeles no están en GitHub (reports/semaforo_c, "
+                     f"corrida del {nuevo['hoy']}) ni en la API: el tablero sigue en la última corrida que puede traer")
+        elif em_aws == nuevo["hoy"]:
+            assert mismos_porcentajes(nuevo, res_aws), f"la corrida de GitHub no coincide con la emisión {em_aws} de AWS"
+            log(f"semáforo: la corrida de GitHub coincide con la emisión {em_aws} de AWS")
     if nuevo["hoy"] < actual["hoy"]:
         log(f"semáforo: la corrida publicada ({nuevo['hoy']}) es anterior a la última del tablero ({actual['hoy']})")
-        return actual, {}
+        return actual, {}, aviso
     assert [h["h"] for h in nuevo["horizontes"]] == HORIZONTES, "horizontes distintos de 0, 7, 15 y 30"
     for clave in ("geos_inicio", "zona_ha", "limites_latlon", "modelo_b", "dias_hasta_baja_sin_riego_pct"):
         assert clave in nuevo, f"resumen.json sin {clave}"
 
-    gz = bajar(f"{SIRA}/reports/semaforo_c/pixeles.csv.gz")
+    if gz is None:
+        gz = bajar(f"{SIRA}/reports/semaforo_c/pixeles.csv.gz")
     px = pd.read_csv(io.BytesIO(gz), compression="gzip")
     faltan = set(pd.read_csv(CORRIDAS / actual["hoy"] / "pixeles.csv.gz", nrows=0).columns) - set(px.columns)
     assert not faltan, f"pixeles.csv.gz sin las columnas {sorted(faltan)}"
@@ -98,10 +144,10 @@ def semaforo(actual: dict) -> tuple[dict, dict[str, bytes]]:
                and gz == (carpeta / "pixeles.csv.gz").read_bytes())
     cambios = {} if iguales else {"resumen.json": crudo, "pixeles.csv.gz": gz}
     estado = "nueva" if nuevo["hoy"] > actual["hoy"] else ("revisada" if cambios else "sin cambios")
-    log(f"semáforo: corrida del {nuevo['hoy']} ({estado}) · {len(px):,} pixeles · "
+    log(f"semáforo: corrida del {nuevo['hoy']} de {origen} ({estado}) · {len(px):,} pixeles · "
         f"hoy {nuevo['horizontes'][0]['suficiente']['pct']} % suficiente, {nuevo['horizontes'][0]['media']['pct']} % "
         f"regar pronto, {nuevo['horizontes'][0]['baja']['pct']} % regar ya")
-    return nuevo, cambios
+    return nuevo, cambios, aviso
 
 
 # ----------------------------------------------------------------------------- 2. pronóstico GEOS-S2S
@@ -157,16 +203,33 @@ def pronostico(R: dict, clima: pd.DataFrame) -> pd.DataFrame:
     media = futuro.groupby("fecha_objetivo")[["lluvia_corr_mm", "eto_corr_mm"]].mean().cumsum()
     if "diario" in R:
         ref = pd.DataFrame(R["diario"]).set_index("fecha").loc[media.index]
-        tol = 0.06
     else:
         ref = pd.DataFrame(R["horizontes"]).set_index("fecha").loc[lambda x: x.h > 0]
-        tol = 0.5
     dif = max((media.loc[ref.index, "lluvia_corr_mm"] - ref.lluvia_mm_hasta_h).abs().max(),
               (media.loc[ref.index, "eto_corr_mm"] - ref.eto_mm_hasta_h).abs().max())
-    assert dif <= tol, f"el pronóstico no reproduce la lluvia y la ETo de la corrida (diferencia {dif:.2f} mm)"
+    assert dif <= 0.06, f"el pronóstico no reproduce la lluvia y la ETo de la corrida (diferencia {dif:.2f} mm)"
     log(f"pronóstico: GEOS-S2S del {ini.date()} · {out.miembro.nunique()} escenarios · hasta {fechas[-1].date()} · "
         f"control contra la corrida: diferencia máxima {dif:.3f} mm")
     return out
+
+
+def pronostico_de_resumen(R: dict, clima: pd.DataFrame) -> pd.DataFrame:
+    """Respaldo cuando el GEOS-S2S de la corrida no está publicado: la lluvia y la ETo medias que guardó la corrida, sin
+    la dispersión de los escenarios, y la temperatura normal de cada día."""
+    d = pd.DataFrame(R["diario"]).sort_values("h")
+    d["lluvia"], d["eto"] = d.lluvia_mm_hasta_h.diff(), d.eto_mm_hasta_h.diff()
+    d = d[d.h > 0]
+    c = clima.set_index("fecha")
+    per = c.loc[SELLO - pd.DateOffset(years=ANIOS):SELLO - pd.Timedelta(days=1)]
+    doy = per.index.day_of_year
+    fechas = pd.to_datetime(d.fecha)
+    log(f"pronóstico: sin el GEOS-S2S del {R['geos_inicio']} publicado; se usa la lluvia y la ETo medias de la corrida")
+    return pd.DataFrame({
+        "celda_clima_id": "CELDA_4.0_-75.0", "emision": R["geos_inicio"], "miembro": 0, "fecha_objetivo": d.fecha.to_numpy(),
+        "plazo": (fechas - pd.Timestamp(R["geos_inicio"])).dt.days.to_numpy(), "pr_raw_mm": np.nan,
+        "lluvia_corr_mm": d.lluvia.to_numpy(), "tx_corr_c": fechas.dt.day_of_year.map(per.temp_max_c.groupby(doy).mean()).to_numpy(),
+        "tn_corr_c": fechas.dt.day_of_year.map(per.temp_min_c.groupby(doy).mean()).to_numpy(),
+        "eto_corr_mm": d.eto.to_numpy(), "eto_es_relleno_clim": False})
 
 
 # ----------------------------------------------------------------------------- 3. clima observado
@@ -338,9 +401,18 @@ def main() -> int:
         errores.append(f"clima: {error}")
 
     try:
-        nuevo, archivos = semaforo(R)
+        nuevo, archivos, aviso = semaforo(R)
+        if aviso:
+            errores.append(f"semáforo: {aviso}")
         if archivos:
-            archivos["geos.parquet"] = a_parquet(pronostico(nuevo, clima_nuevo))
+            try:
+                geos = pronostico(nuevo, clima_nuevo)
+            except Exception as error:  # noqa: BLE001
+                if "diario" not in nuevo:
+                    raise
+                log(f"pronóstico: {error}")
+                geos = pronostico_de_resumen(nuevo, clima_nuevo)
+            archivos["geos.parquet"] = a_parquet(geos)
             escribir |= {CORRIDAS / nuevo["hoy"] / nombre: contenido for nombre, contenido in archivos.items()}
             R = nuevo
     except Exception as error:  # noqa: BLE001

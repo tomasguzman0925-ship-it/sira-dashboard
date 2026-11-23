@@ -37,7 +37,7 @@ with st.sidebar:
                f"al {fecha_corta(ultima)} {ultima.year}.")
     st.markdown("**Colores del semáforo**")
     for nombre, color, que in (("Regar ya", ROJO, "humedad bajo 27,1 %"), ("Regar pronto", AMBAR, "entre 27,1 y 30 %"),
-                               ("Suficiente", VERDE, "30 % o más"), ("Revisar en campo", MORADO, "posible plaga o deficiencia")):
+                               ("Suficiente", VERDE, "30 % o más"), ("Revisar en campo", MORADO, "posible enfermedad o deficiencia nutricional")):
         st.markdown(f"<div style='display:flex;gap:0.5rem;align-items:center;margin:0.25rem 0'>"
                     f"<span style='width:12px;height:12px;border-radius:3px;background:{color};flex:none'></span>"
                     f"<span style='font-size:0.88rem'><b>{nombre}</b> <span style='color:{SUAVE}'>· {que}</span></span></div>",

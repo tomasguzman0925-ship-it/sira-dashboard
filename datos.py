@@ -160,11 +160,12 @@ def pixeles() -> pd.DataFrame:
 
 
 def etapa(das: float) -> str:
-    if das < 45:
+    """Etapas de semaforo_c.py: hasta 45 días vegetativa, hasta 82 reproductiva y hasta 130 maduración."""
+    if das <= 45:
         return "Vegetativa"
-    if das < 82:
+    if das <= 82:
         return "Reproductiva"
-    if das < 125:
+    if das <= 130:
         return "Maduración"
     return "Cosecha / socas"
 
@@ -211,7 +212,7 @@ def lotes() -> pd.DataFrame:
 def _miembros(c: str) -> pd.DataFrame:
     g = pd.read_parquet(CORRIDAS / c / "geos.parquet")
     g["fecha"] = pd.to_datetime(g.fecha_objetivo).dt.date
-    return g[g.fecha >= dt.date.fromisoformat(_resumen(c)["hoy"])].reset_index(drop=True)
+    return g[g.fecha > dt.date.fromisoformat(_resumen(c)["hoy"])].reset_index(drop=True)
 
 
 def pronostico_miembros() -> pd.DataFrame:

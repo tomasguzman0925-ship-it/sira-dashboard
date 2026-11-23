@@ -1,12 +1,13 @@
 """Actualiza los datos del tablero con lo último publicado. GitHub Actions lo corre cada día a las 5:30 a. m.
 
-1. Semáforo: la última corrida publicada en GomSal/SIRA (rama modelo-humedad, reports/semaforo_c).
-2. Pronóstico: GEOS-S2S del inicio que usó esa corrida, corregido igual que en scripts/operacion/semaforo_c.py.
-   Control: el promedio de los escenarios da la lluvia y la ETo acumuladas que guardó la corrida.
-3. Clima observado: NASA POWER, CHIRPS y Open-Meteo con las reglas de la tabla clima_dia del pipeline de clima.
+1. Clima observado: NASA POWER, CHIRPS y Open-Meteo con las reglas de la tabla clima_dia del pipeline de clima.
    Control: las columnas calculadas de los días que no cambian quedan idénticas.
+2. Semáforo: si GomSal/SIRA (rama modelo-humedad, reports/semaforo_c) tiene una corrida más reciente que la última
+   del tablero, o la misma corrida revisada, la guarda en data/corridas/<fecha>/ junto con su pronóstico GEOS-S2S,
+   corregido igual que en scripts/operacion/semaforo_c.py. Control: el promedio de los escenarios da la lluvia y la
+   ETo acumuladas que guardó la corrida. Las corridas anteriores no se tocan: son el historial del tablero.
 
-Cada paso que falla deja su archivo como estaba y el script termina con error. Solo escribe lo que cambió.
+Cada paso que falla deja sus archivos como estaban y el script termina con error. Solo escribe lo que cambió.
 
     python actualizar.py [--seco]
 """
@@ -40,13 +41,9 @@ UMBRAL_LLUVIA_MM = 2.0
 COLUMNAS_CLIMA = ["fecha", "lluvia_mm", "fuente_lluvia", "lluvia_5d_mm", "dias_sin_lluvia", "temp_max_c", "temp_min_c",
                   "humedad_rel_pct", "rad_solar_mj_m2", "eto_mm", "fuente_eto", "atwd_5d_mm", "gdd_arroz_c"]
 
-ARCHIVOS = {
-    "resumen": DATA / "semaforo/resumen.json",
-    "pixeles": DATA / "semaforo/pixeles.csv.gz",
-    "geos": DATA / "clima/geos_s2s_corregido_latest.parquet",
-    "clima": DATA / "clima/clima_diario_1981_2026.parquet",
-    "estado": DATA / "actualizacion.json",
-}
+CORRIDAS = DATA / "corridas"
+CLIMA = DATA / "clima/clima_diario_1981_2026.parquet"
+ESTADO = DATA / "actualizacion.json"
 
 T0 = time.time()
 
@@ -76,11 +73,12 @@ def bajar_json(url: str, params: dict | None = None, **kw) -> dict | list:
 # ----------------------------------------------------------------------------- 1. semáforo
 
 
-def semaforo(actual: dict) -> tuple[dict, dict[Path, bytes]]:
+def semaforo(actual: dict) -> tuple[dict, dict[str, bytes]]:
+    """La corrida publicada, si es más reciente que la última del tablero o la misma revisada; si no, nada."""
     crudo = bajar(f"{SIRA}/reports/semaforo_c/resumen.json")
     nuevo = json.loads(crudo)
     if nuevo["hoy"] < actual["hoy"]:
-        log(f"semáforo: la corrida publicada ({nuevo['hoy']}) es anterior a la del tablero ({actual['hoy']}); se deja")
+        log(f"semáforo: la corrida publicada ({nuevo['hoy']}) es anterior a la última del tablero ({actual['hoy']})")
         return actual, {}
     assert [h["h"] for h in nuevo["horizontes"]] == HORIZONTES, "horizontes distintos de 0, 7, 15 y 30"
     for clave in ("geos_inicio", "zona_ha", "limites_latlon", "modelo_b", "dias_hasta_baja_sin_riego_pct"):
@@ -88,17 +86,17 @@ def semaforo(actual: dict) -> tuple[dict, dict[Path, bytes]]:
 
     gz = bajar(f"{SIRA}/reports/semaforo_c/pixeles.csv.gz")
     px = pd.read_csv(io.BytesIO(gz), compression="gzip")
-    faltan = set(pd.read_csv(ARCHIVOS["pixeles"], nrows=0).columns) - set(px.columns)
+    faltan = set(pd.read_csv(CORRIDAS / actual["hoy"] / "pixeles.csv.gz", nrows=0).columns) - set(px.columns)
     assert not faltan, f"pixeles.csv.gz sin las columnas {sorted(faltan)}"
     fila, col = px.pixel // REJILLA_N - FILA0, px.pixel % REJILLA_N - COL0
     assert fila.between(0, LADO - 1).all() and col.between(0, LADO - 1).all(), "pixeles fuera de la zona del tablero"
     assert px.pixel.is_unique, "pixeles repetidos"
 
-    cambios = {}
-    if crudo != ARCHIVOS["resumen"].read_bytes():
-        cambios[ARCHIVOS["resumen"]] = crudo
-    if gz != ARCHIVOS["pixeles"].read_bytes():
-        cambios[ARCHIVOS["pixeles"]] = gz
+    carpeta = CORRIDAS / nuevo["hoy"]
+    sin_cr = lambda b: b.replace(b"\r\n", b"\n")  # noqa: E731
+    iguales = (carpeta.exists() and sin_cr(crudo) == sin_cr((carpeta / "resumen.json").read_bytes())
+               and gz == (carpeta / "pixeles.csv.gz").read_bytes())
+    cambios = {} if iguales else {"resumen.json": crudo, "pixeles.csv.gz": gz}
     estado = "nueva" if nuevo["hoy"] > actual["hoy"] else ("revisada" if cambios else "sin cambios")
     log(f"semáforo: corrida del {nuevo['hoy']} ({estado}) · {len(px):,} pixeles · "
         f"hoy {nuevo['horizontes'][0]['suficiente']['pct']} % suficiente, {nuevo['horizontes'][0]['media']['pct']} % "
@@ -327,46 +325,43 @@ def main() -> int:
 
     escribir: dict[Path, bytes] = {}
     errores = []
-    R = json.loads(ARCHIVOS["resumen"].read_text(encoding="utf-8"))
-    clima_actual = pd.read_parquet(ARCHIVOS["clima"])
-
-    try:
-        R, cambios = semaforo(R)
-        escribir |= cambios
-    except Exception as error:  # noqa: BLE001
-        errores.append(f"semáforo: {error}")
+    ultima = sorted(p.name for p in CORRIDAS.iterdir() if (p / "resumen.json").exists())[-1]
+    R = json.loads((CORRIDAS / ultima / "resumen.json").read_text(encoding="utf-8"))
+    clima_actual = pd.read_parquet(CLIMA)
 
     clima_nuevo = clima_actual
     try:
         clima_nuevo = clima(clima_actual)
-        if not igual(clima_nuevo, ARCHIVOS["clima"]):
-            escribir[ARCHIVOS["clima"]] = a_parquet(clima_nuevo)
+        if not igual(clima_nuevo, CLIMA):
+            escribir[CLIMA] = a_parquet(clima_nuevo)
     except Exception as error:  # noqa: BLE001
         errores.append(f"clima: {error}")
 
     try:
-        g = pronostico(R, clima_nuevo)
-        if not igual(g, ARCHIVOS["geos"]):
-            escribir[ARCHIVOS["geos"]] = a_parquet(g)
+        nuevo, archivos = semaforo(R)
+        if archivos:
+            archivos["geos.parquet"] = a_parquet(pronostico(nuevo, clima_nuevo))
+            escribir |= {CORRIDAS / nuevo["hoy"] / nombre: contenido for nombre, contenido in archivos.items()}
+            R = nuevo
     except Exception as error:  # noqa: BLE001
-        errores.append(f"pronóstico: {error}")
+        errores.append(f"semáforo: {error}")
 
     for e in errores:
         log(f"ERROR {e}")
+    nombres = lambda rutas: sorted(str(r.relative_to(DATA)).replace("\\", "/") for r in rutas)  # noqa: E731
     if escribir:
-        g = pd.read_parquet(io.BytesIO(escribir[ARCHIVOS["geos"]])) if ARCHIVOS["geos"] in escribir \
-            else pd.read_parquet(ARCHIVOS["geos"])
+        geos = escribir.get(CORRIDAS / R["hoy"] / "geos.parquet")
+        g = pd.read_parquet(io.BytesIO(geos) if geos else CORRIDAS / R["hoy"] / "geos.parquet")
         estado = {
             "revisado": dt.datetime.now(COLOMBIA).isoformat(timespec="minutes"),
             "semaforo": R["hoy"], "geos_inicio": str(g.emision.iloc[0]),
-            "clima_hasta": str(clima_nuevo.fecha.max().date()),
-            "archivos": sorted(str(r.relative_to(DATA)).replace("\\", "/") for r in escribir), "errores": errores,
+            "clima_hasta": str(clima_nuevo.fecha.max().date()), "archivos": nombres(escribir), "errores": errores,
         }
-        escribir[ARCHIVOS["estado"]] = (json.dumps(estado, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    log(("se escribirían: " if a.seco else "escritos: ") + (", ".join(
-        str(r.relative_to(DATA)).replace("\\", "/") for r in escribir) or "nada"))
+        escribir[ESTADO] = (json.dumps(estado, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    log(("se escribirían: " if a.seco else "escritos: ") + (", ".join(nombres(escribir)) or "nada"))
     if not a.seco:
         for ruta, contenido in escribir.items():
+            ruta.parent.mkdir(parents=True, exist_ok=True)
             ruta.write_bytes(contenido)
     return 1 if errores else 0
 

@@ -2,7 +2,7 @@
 
 Tablero operativo de SIRA para agricultores y agrónomos del Alto Magdalena. Dice qué lotes regar, cuándo y con cuánta agua, a partir del semáforo de humedad del suelo por pixel de 10 m, el pronóstico del clima de la NASA y el estado del cultivo visto por satélite.
 
-Cubre 400 ha alrededor del C.I. Nataima (El Espinal, Tolima) y se actualiza solo cada día (ver [Actualización diaria](#actualización-diaria)).
+Cubre 400 ha alrededor del C.I. Nataima (El Espinal, Tolima), se actualiza solo cada día (ver [Actualización diaria](#actualización-diaria)) y guarda el historial de corridas (ver [Historial](#historial)).
 
 ## Páginas
 
@@ -41,7 +41,9 @@ Cada día a las 5:30 a. m. (hora de Colombia), GitHub Actions corre `actualizar.
 | Pronóstico GEOS-S2S | El inicio que usó esa corrida, corregido como en `semaforo_c.py`; el promedio de los escenarios debe dar la lluvia y la ETo acumuladas que guardó la corrida | Con cada corrida |
 | Lluvia y ETo observadas | NASA POWER, CHIRPS y Open-Meteo, con las reglas de la tabla `clima_dia` del pipeline de clima | Cada día |
 
-Si algo cambió, el workflow hace commit de `data/` y Streamlit Community Cloud vuelve a publicar la app en un par de minutos. Si una fuente falla, su archivo queda como estaba y el workflow termina en rojo; GitHub avisa por correo.
+Cada corrida nueva se guarda en `data/corridas/<fecha>/` (`resumen.json`, `pixeles.csv.gz` y `geos.parquet`, su pronóstico) sin tocar las anteriores. Si el equipo vuelve a publicar la corrida del mismo día con cambios, esa carpeta se reemplaza.
+
+Si algo cambió, el workflow hace commit de `data/` y Streamlit Community Cloud vuelve a publicar la app en un par de minutos. Si una fuente falla, sus archivos quedan como estaban y el workflow termina en rojo; GitHub avisa por correo.
 
 El semáforo no se recalcula aquí: necesita el cubo de imágenes y los modelos del equipo, que no están en GitHub. Para que el tablero muestre una corrida nueva, basta con publicarla en `reports/semaforo_c` de la rama `modelo-humedad`.
 
@@ -51,6 +53,12 @@ Para correrlo a mano: en GitHub, **Actions** → **Actualizar datos** → **Run 
 python actualizar.py --seco   # revisa todo sin escribir
 python actualizar.py
 ```
+
+## Historial
+
+En la barra lateral, **Fecha del semáforo** abre la más reciente. Al elegir otra fecha, todas las páginas muestran la corrida de ese día o, si ese día no hubo corrida, la anterior más cercana. Con una corrida antigua, el encabezado dice **Historial** y el clima observado llega hasta el día de esa corrida.
+
+También se puede abrir una fecha con un enlace, por ejemplo `https://sira-riego-arroz.streamlit.app/?fecha=2026-11-15`.
 
 ## Publicarlo en Streamlit Community Cloud
 
@@ -68,7 +76,7 @@ comun.py      encabezado del predio y mapa satelital
 datos.py      lectura de datos, lotes, plan de riego y capas del mapa
 estilo.py     colores, tipografía y componentes
 paginas/      una página por pantalla
-data/         semáforo por pixel, pronóstico GEOS-S2S, clima diario desde 1981, curva normal del NDVI, suelo del predio y fecha de la última actualización
+data/         corridas/<fecha>/ (semáforo por pixel y su pronóstico GEOS-S2S), clima diario desde 1981, curva normal del NDVI, suelo del predio y fecha de la última actualización
 ```
 
 Los datos vienen del repositorio [GomSal/SIRA](https://github.com/GomSal/SIRA) (ramas `modelo-humedad` y `Big-Data_Arch`) y de la tabla `clima_dia` del pipeline de clima.

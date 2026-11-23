@@ -3,10 +3,12 @@
 Ejecutar:  streamlit run app.py
 """
 
+import datetime as dt
+
 import streamlit as st
 
-from datos import vigilar_datos
-from estilo import AMBAR, MORADO, PRIMARIO, ROJO, SUAVE, VERDE, aplicar_estilo
+from datos import corrida_para, corridas, vigilar_datos
+from estilo import AMBAR, MORADO, PRIMARIO, ROJO, SUAVE, VERDE, aplicar_estilo, fecha_corta
 
 st.set_page_config(page_title="SIRA · Riego de arroz", page_icon="💧", layout="wide")
 vigilar_datos()
@@ -17,6 +19,22 @@ with st.sidebar:
                 f"<div style='color:{SUAVE};font-size:0.9rem;margin-top:-0.2rem'>Riego de arroz por pixel</div>",
                 unsafe_allow_html=True)
     st.selectbox("Predio", ["C.I. Nataima · zona 2 × 2 km"], key="predio")
+    lista = corridas()
+    primera, ultima = dt.date.fromisoformat(lista[0]), dt.date.fromisoformat(lista[-1])
+    tope = max(ultima, dt.date.today())
+    if "fecha" not in st.session_state:
+        try:
+            pedida = dt.date.fromisoformat(st.query_params.get("fecha", ""))
+        except ValueError:
+            pedida = ultima
+        st.session_state["fecha"] = min(max(pedida, primera), tope)
+    fecha = st.date_input("Fecha del semáforo", min_value=primera, max_value=tope, format="DD/MM/YYYY", key="fecha")
+    st.session_state["corrida"] = corrida_para(fecha)
+    mostrada = dt.date.fromisoformat(st.session_state["corrida"])
+    if mostrada != fecha:
+        st.caption(f"No hay corrida del {fecha_corta(fecha)}: se muestra la del {fecha_corta(mostrada)}.")
+    st.caption(f"{len(lista)} corridas guardadas, del {fecha_corta(primera)} {primera.year} "
+               f"al {fecha_corta(ultima)} {ultima.year}.")
     st.markdown("**Colores del semáforo**")
     for nombre, color, que in (("Regar ya", ROJO, "humedad bajo 27,1 %"), ("Regar pronto", AMBAR, "entre 27,1 y 30 %"),
                                ("Suficiente", VERDE, "30 % o más"), ("Revisar en campo", MORADO, "posible plaga o deficiencia")):

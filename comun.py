@@ -4,8 +4,8 @@ import datetime as dt
 
 import plotly.graph_objects as go
 
-from datos import HORIZONTES, capa_png, hoy, lotes, pixeles, predio, pronostico, resumen
-from estilo import cabecera, fecha_corta, num
+from datos import HORIZONTES, capa_png, corridas, es_ultima, hoy, lotes, pixeles, predio, pronostico, resumen
+from estilo import SOL, cabecera, fecha_corta, num
 
 ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 
@@ -13,8 +13,10 @@ ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapSe
 def encabezado(titulo: str) -> None:
     p, r = predio(), resumen()
     emision = dt.date.fromisoformat(pronostico().emision.iloc[0])
+    historial = [] if es_ultima() else [
+        f"<b style='color:{SOL}'>Historial</b> · la más reciente es del {fecha_corta(dt.date.fromisoformat(corridas()[-1]))}"]
     cabecera(titulo, f"C.I. Nataima (Agrosavia) · {p.municipio}, {p.departamento} · distrito de riego {p.distrito_riego}",
-             [f"Semáforo del <b>{fecha_corta(hoy())}</b>", f"Pronóstico NASA del <b>{fecha_corta(emision)}</b>",
+             [*historial, f"Semáforo del <b>{fecha_corta(hoy())}</b>", f"Pronóstico NASA del <b>{fecha_corta(emision)}</b>",
               f"<b>{num(r['zona_ha'])} ha</b> · {num(r['horizontes'][0]['ha_en_cultivo'], 1)} ha en arroz"])
 
 

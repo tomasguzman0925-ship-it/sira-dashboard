@@ -13,6 +13,7 @@ import streamlit as st
 from PIL import Image
 
 DATA = Path(__file__).parent / "data"
+CORRIDAS = DATA / "corridas"
 
 # La zona es un recorte de 200 × 200 pixeles de 10 m dentro de la rejilla de 500 × 500 del modelo A.
 REJILLA_N, FILA0, COL0, LADO = 500, 150, 149, 200
@@ -41,9 +42,36 @@ def actualizacion() -> dict | None:
     return json.loads(ruta.read_text(encoding="utf-8")) if ruta.exists() else None
 
 
+def corridas() -> list[str]:
+    """Fechas de las corridas guardadas en data/corridas, de la más antigua a la más reciente."""
+    return sorted(p.name for p in CORRIDAS.iterdir() if (p / "resumen.json").exists())
+
+
+def corrida_para(fecha: dt.date) -> str:
+    """La corrida más reciente hasta esa fecha; si la fecha es anterior a todas, la primera."""
+    lista = corridas()
+    previas = [c for c in lista if c <= fecha.isoformat()]
+    return previas[-1] if previas else lista[0]
+
+
+def corrida() -> str:
+    """La corrida que eligió el usuario en la barra lateral; por defecto, la más reciente."""
+    lista = corridas()
+    elegida = st.session_state.get("corrida")
+    return elegida if elegida in lista else lista[-1]
+
+
+def es_ultima() -> bool:
+    return corrida() == corridas()[-1]
+
+
 @st.cache_data
+def _resumen(c: str) -> dict:
+    return json.loads((CORRIDAS / c / "resumen.json").read_text(encoding="utf-8"))
+
+
 def resumen() -> dict:
-    return json.loads((DATA / "semaforo/resumen.json").read_text(encoding="utf-8"))
+    return _resumen(corrida())
 
 
 def hoy() -> dt.date:
@@ -105,11 +133,11 @@ def _etiquetar_lotes(px: pd.DataFrame) -> np.ndarray:
 
 
 @st.cache_data
-def pixeles() -> pd.DataFrame:
-    px = pd.read_csv(DATA / "semaforo/pixeles.csv.gz")
+def _pixeles(c: str) -> pd.DataFrame:
+    px = pd.read_csv(CORRIDAS / c / "pixeles.csv.gz")
     px["fila"] = px.pixel // REJILLA_N - FILA0
     px["col"] = px.pixel % REJILLA_N - COL0
-    (lat_s, lon_o), (lat_n, lon_e) = resumen()["limites_latlon"]
+    (lat_s, lon_o), (lat_n, lon_e) = _resumen(c)["limites_latlon"]
     px["lat"] = lat_n - (px.fila + 0.5) / LADO * (lat_n - lat_s)
     px["lon"] = lon_o + (px.col + 0.5) / LADO * (lon_e - lon_o)
     for h in HORIZONTES:
@@ -123,6 +151,10 @@ def pixeles() -> pd.DataFrame:
     return px
 
 
+def pixeles() -> pd.DataFrame:
+    return _pixeles(corrida())
+
+
 def etapa(das: float) -> str:
     if das < 45:
         return "Vegetativa"
@@ -134,10 +166,10 @@ def etapa(das: float) -> str:
 
 
 @st.cache_data
-def lotes() -> pd.DataFrame:
-    px = pixeles()
+def _lotes(corr: str) -> pd.DataFrame:
+    px = _pixeles(corr)
     c = px[(px.clase_h0 >= 0) & (px.lote != "Disperso")]
-    h0 = hoy()
+    h0 = dt.date.fromisoformat(_resumen(corr)["hoy"])
     filas = []
     for nombre, g in c.groupby("lote"):
         das = float(g.das_hoy.mode().iloc[0])
@@ -167,29 +199,45 @@ def lotes() -> pd.DataFrame:
     return pd.DataFrame(filas).sort_values(["prioridad", "fecha_limite", "pct_rojo"], ascending=[True, True, False]).reset_index(drop=True)
 
 
+def lotes() -> pd.DataFrame:
+    return _lotes(corrida())
+
+
 @st.cache_data
-def pronostico() -> pd.DataFrame:
-    g = pd.read_parquet(DATA / "clima/geos_s2s_corregido_latest.parquet")
+def _miembros(c: str) -> pd.DataFrame:
+    g = pd.read_parquet(CORRIDAS / c / "geos.parquet")
     g["fecha"] = pd.to_datetime(g.fecha_objetivo).dt.date
+    return g[g.fecha >= dt.date.fromisoformat(_resumen(c)["hoy"])].reset_index(drop=True)
+
+
+def pronostico_miembros() -> pd.DataFrame:
+    return _miembros(corrida())
+
+
+@st.cache_data
+def _pronostico(c: str) -> pd.DataFrame:
+    g = _miembros(c)
     d = g.groupby("fecha").agg(lluvia=("lluvia_corr_mm", "mean"), lluvia_min=("lluvia_corr_mm", "min"),
                                lluvia_max=("lluvia_corr_mm", "max"), eto=("eto_corr_mm", "mean"),
                                tmax=("tx_corr_c", "mean"), tmin=("tn_corr_c", "mean")).reset_index()
     d["emision"] = g.emision.iloc[0]
-    return d[d.fecha >= hoy()].reset_index(drop=True)
+    return d
+
+
+def pronostico() -> pd.DataFrame:
+    return _pronostico(corrida())
 
 
 @st.cache_data
-def pronostico_miembros() -> pd.DataFrame:
-    g = pd.read_parquet(DATA / "clima/geos_s2s_corregido_latest.parquet")
-    g["fecha"] = pd.to_datetime(g.fecha_objetivo).dt.date
-    return g[g.fecha >= hoy()]
-
-
-@st.cache_data
-def clima_observado() -> pd.DataFrame:
+def _clima(hasta: str | None) -> pd.DataFrame:
     c = pd.read_parquet(DATA / "clima/clima_diario_1981_2026.parquet")
     c["fecha"] = pd.to_datetime(c.fecha)
-    return c
+    return c if hasta is None else c[c.fecha <= pd.Timestamp(hasta)].reset_index(drop=True)
+
+
+def clima_observado() -> pd.DataFrame:
+    """Todo el clima observado con la corrida más reciente; con una anterior, hasta el día de esa corrida."""
+    return _clima(None if es_ultima() else resumen()["hoy"])
 
 
 # ----------------------------------------------------------------------------- mapas
@@ -216,9 +264,13 @@ def colorear(valores: np.ndarray, paradas: list[tuple[float, str]]) -> np.ndarra
     return np.stack([np.interp(v, xs, cs[:, k]) for k in range(3)], axis=-1)
 
 
-@st.cache_data
 def capa_png(capa: str, h: int, lote: str) -> str:
-    px = pixeles()
+    return _capa_png(corrida(), capa, h, lote)
+
+
+@st.cache_data
+def _capa_png(c: str, capa: str, h: int, lote: str) -> str:
+    px = _pixeles(c)
     sel = px[px[f"clase_h{h}"] >= 0]
     if lote != "Todos":
         sel = sel[sel.lote == lote]

@@ -41,7 +41,7 @@ jobs:
             echo "Sin cambios en los datos"
             exit 0
           fi
-          semaforo=$(python -c "import json; print(json.load(open('data/semaforo/resumen.json', encoding='utf-8'))['hoy'])")
+          semaforo=$(python -c "import json; print(json.load(open('data/actualizacion.json', encoding='utf-8'))['semaforo'])")
           git commit -m "Datos del $(TZ=America/Bogota date +%F): semáforo del ${semaforo}"
           git pull --rebase
           git push

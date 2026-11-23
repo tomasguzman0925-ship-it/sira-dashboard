@@ -1,13 +1,10 @@
 {
-  "revisado": "2026-11-22T21:11-05:00",
+  "revisado": "2026-11-23T08:48-05:00",
   "semaforo": "2026-11-19",
   "geos_inicio": "2026-11-12",
-  "clima_hasta": "2026-11-21",
+  "clima_hasta": "2026-11-22",
   "archivos": [
-    "clima/clima_diario_1981_2026.parquet",
-    "clima/geos_s2s_corregido_latest.parquet",
-    "semaforo/pixeles.csv.gz",
-    "semaforo/resumen.json"
+    "clima/clima_diario_1981_2026.parquet"
   ],
   "errores": []
 }

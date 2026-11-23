@@ -5,9 +5,11 @@ Ejecutar:  streamlit run app.py
 
 import streamlit as st
 
+from datos import vigilar_datos
 from estilo import AMBAR, MORADO, PRIMARIO, ROJO, SUAVE, VERDE, aplicar_estilo
 
 st.set_page_config(page_title="SIRA · Riego de arroz", page_icon="💧", layout="wide")
+vigilar_datos()
 aplicar_estilo()
 
 with st.sidebar:

@@ -14,7 +14,7 @@ def encabezado(titulo: str) -> None:
     p, r = predio(), resumen()
     emision = dt.date.fromisoformat(pronostico().emision.iloc[0])
     cabecera(titulo, f"C.I. Nataima (Agrosavia) · {p.municipio}, {p.departamento} · distrito de riego {p.distrito_riego}",
-             [f"Actualizado <b>{fecha_corta(hoy())} · 5:00 a. m.</b>", f"Pronóstico NASA del <b>{fecha_corta(emision)}</b>",
+             [f"Semáforo del <b>{fecha_corta(hoy())}</b>", f"Pronóstico NASA del <b>{fecha_corta(emision)}</b>",
               f"<b>{num(r['zona_ha'])} ha</b> · {num(r['horizontes'][0]['ha_en_cultivo'], 1)} ha en arroz"])
 
 

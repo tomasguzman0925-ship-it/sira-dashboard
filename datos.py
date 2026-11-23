@@ -21,6 +21,26 @@ MIN_LOTE_PX = 50  # 0,5 ha
 DIAS_A_ROJO_FIJO = 4.34  # mm de déficit que marcan "regar ya"
 
 
+@st.cache_resource
+def _firma_guardada() -> dict:
+    return {}
+
+
+def vigilar_datos() -> None:
+    """Vacía la caché cuando la actualización diaria cambia algún archivo de data/."""
+    firma = tuple((str(p), p.stat().st_mtime_ns) for p in sorted(DATA.rglob("*")) if p.is_file())
+    guardada = _firma_guardada()
+    if guardada.get("firma") not in (None, firma):
+        st.cache_data.clear()
+    guardada["firma"] = firma
+
+
+@st.cache_data
+def actualizacion() -> dict | None:
+    ruta = DATA / "actualizacion.json"
+    return json.loads(ruta.read_text(encoding="utf-8")) if ruta.exists() else None
+
+
 @st.cache_data
 def resumen() -> dict:
     return json.loads((DATA / "semaforo/resumen.json").read_text(encoding="utf-8"))

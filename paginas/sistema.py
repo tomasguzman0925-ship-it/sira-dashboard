@@ -4,10 +4,11 @@ import pandas as pd
 import streamlit as st
 
 from comun import encabezado
-from datos import clima_observado, hoy, predio, pronostico, resumen
+from datos import actualizacion, clima_observado, hoy, pixeles, predio, pronostico, resumen
 from estilo import AGUA, PRIMARIO, ROJO, SOL, SUAVE, fecha_corta, kpi, num, tabla_simple, titulo_panel
 
 encabezado("Datos y modelo")
+RIEGO = {"CD": "Cascada", "MIRI": "MIRI", "AWD+MIRI": "AWD + MIRI"}
 
 R, p, obs = resumen(), predio(), clima_observado()
 H = hoy()
@@ -20,12 +21,19 @@ desde_prov = prov.fecha.min().date() if len(prov) else None
 with st.container(border=True):
     titulo_panel("Estado de los datos")
     st.dataframe(pd.DataFrame([
-        ("Semáforo por pixel", f"{fecha_corta(H)} {H.year}, 5:00 a. m.", "Cada día, 5:00 a. m.", "20.286 pixeles de 10 m"),
-        ("Pronóstico del clima (NASA GEOS-S2S)", f"Emisión del {fecha_corta(emision)} {emision.year}", "Cada 5 días", "5 escenarios, 30 días, corregido para el sitio"),
+        ("Semáforo por pixel", f"Corrida del {fecha_corta(H)} {H.year}", "Cada corrida nueva del modelo",
+         f"{num(len(pixeles()))} pixeles de 10 m"),
+        ("Pronóstico del clima (NASA GEOS-S2S)", f"Emisión del {fecha_corta(emision)} {emision.year}", "Con cada corrida",
+         f"{R['miembros_geos']} escenarios, 30 días, corregido para el sitio"),
         ("Lluvia y ETo observadas (CHIRPS, NASA POWER)", f"{fecha_corta(ult)} {ult.year}", "Cada día",
          f"Lluvia provisional (Open-Meteo) desde el {fecha_corta(desde_prov)}" if desde_prov else "Definitiva"),
         ("Imágenes Sentinel-2 y Landsat", "Hasta la última corrida", "Cada 2–5 días según nubes", "Huecos por nubes rellenados con Prithvi-EO-2.0"),
     ], columns=["Fuente", "Último dato", "Actualización", "Nota"]), hide_index=True, width="stretch")
+    rev = actualizacion()
+    if rev:
+        r = dt.datetime.fromisoformat(rev["revisado"])
+        st.markdown(f"<div class='nota'>El tablero busca datos nuevos cada día a las 5:30 a. m. Los últimos llegaron el "
+                    f"{fecha_corta(r.date())} {r.year} a las {r:%H:%M}.</div>", unsafe_allow_html=True)
 
 st.write("")
 titulo_panel("Qué tan confiable es")
@@ -52,10 +60,12 @@ with b:
     with st.container(border=True):
         titulo_panel("Supuestos de la corrida")
         tabla_simple([
-            ("Riego hasta hoy", "Cascada, promedio de 3 temporadas medidas"),
+            ("Riego hasta hoy", f"{RIEGO.get(R['modelo_b']['riego_supuesto'].split()[0], 'Cascada')}, promedio de 3 temporadas medidas"),
             ("Riego desde hoy", "Ninguno: el mapa muestra cuándo hace falta"),
             ("Margen de seguridad hoy", f"{num(R['modelo_b']['margen_mm'], 2)} mm (1,5 veces el error típico)"),
             ("Lluvia y ETo futuras", f"Promedio de {R['miembros_geos']} escenarios de GEOS-S2S"),
+            *([("Lluvia sin CHIRPS", f"NASA POWER en los últimos {hueco['dias_sin_chirps']} días")]
+              if (hueco := R.get("lluvia_hueco")) and hueco.get("relleno") == "power" else []),
             ("Humedad de hoy", "ARIMAX(1) entrenado con 198 mediciones TDR"),
             ("NDVI y NDMI futuros", "Random Forest, 10 años de Sentinel-2 y Landsat"),
             ("Humedad de hoy a 30 días", "Balance hídrico FAO-56"),

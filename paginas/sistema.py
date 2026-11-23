@@ -5,6 +5,7 @@ import streamlit as st
 
 from comun import encabezado
 from datos import actualizacion, clima_observado, corrida, corridas, hoy, pixeles, predio, pronostico, resumen, resumen_de
+from modelos import seccion_modelos
 from estilo import (AGUA, BORDE, PRIMARIO, PRIMARIO_CLARO, ROJO, SOL, SUAVE, TARJETA, TEXTO, fecha_corta, kpi,
                     mini, num, tabla_simple, titulo_panel)
 
@@ -35,7 +36,7 @@ ETAPAS = [
                               "Parquet (Snappy) y JSON"]),
     ("Procesamiento", SOL, ["EventBridge, 5:00 a. m. → Step Functions", "Glue sira-b-02 (PySpark): clima y GEOS-S2S",
                             "Glue sira-b-05: modelos y semáforo"]),
-    ("Modelos", PRIMARIO, ["A · Random Forest: NDVI y NDMI a 30 días", "B · ARIMAX(1): humedad de hoy",
+    ("Modelos", PRIMARIO, ["A · Random Forest: NDVI y NDMI a 30 días", "B · ARIMAX: humedad de hoy",
                            "FAO-56 con 5 escenarios: de hoy a 30 días", "Alarma del NDMI"]),
     ("Consumo", PRIMARIO, ["Athena: 13 tablas", "API en AWS Lambda → app Lovable", "Este tablero"]),
 ]
@@ -132,6 +133,9 @@ kpi(c[2], "Pronóstico del vigor (NDVI)", "28 % mejor", "que repetir la última 
 kpi(c[3], "Precisión del rojo hoy", "1 de 5", "rojos del día 0 confirmados: verificar antes de regar", ROJO, ROJO)
 
 st.write("")
+seccion_modelos()
+
+st.write("")
 a, b = st.columns(2, gap="medium")
 with a:
     with st.container(border=True):
@@ -155,7 +159,7 @@ with b:
             ("Lluvia y ETo futuras", f"Promedio de {R['miembros_geos']} escenarios de GEOS-S2S"),
             *([("Lluvia sin CHIRPS", f"NASA POWER en los últimos {hueco['dias_sin_chirps']} días")]
               if (hueco := R.get("lluvia_hueco")) and hueco.get("relleno") == "power" else []),
-            ("Humedad de hoy", "ARIMAX(1) entrenado con 198 mediciones TDR"),
+            ("Humedad de hoy", "ARIMAX entrenado con 198 mediciones TDR"),
             ("NDVI y NDMI futuros", "Random Forest, 10 años de Sentinel-2 y Landsat"),
             ("Humedad de hoy a 30 días", "Balance hídrico FAO-56"),
         ])

@@ -1,8 +1,8 @@
 {
-  "revisado": "2026-11-27T14:37-05:00",
+  "revisado": "2026-11-28T13:23-05:00",
   "semaforo": "2026-11-19",
   "geos_inicio": "2026-11-12",
-  "clima_hasta": "2026-11-26",
+  "clima_hasta": "2026-11-27",
   "archivos": [
     "clima/clima_diario_1981_2026.parquet"
   ],
